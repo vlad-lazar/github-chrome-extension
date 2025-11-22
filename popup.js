@@ -5,7 +5,7 @@ const statusEl = document.getElementById("status");
 const testBtn = document.getElementById("testBtn");
 
 async function loadSettings() {
-  const { enabled = true, volume = 70 } = await chrome.storage.local.get([
+  const { enabled = true, volume = 75 } = await chrome.storage.local.get([
     "enabled",
     "volume",
   ]);

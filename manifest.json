@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "GitHub Fun Tracker",
+  "version": "0.1.0",
+  "description": "User commits + lines added/removed with playful vibes.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "GitHub Fun Tracker"
+  },
+  "permissions": ["storage", "offscreen"],
+  "host_permissions": ["https://api.github.com/*", "https://github.com/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://github.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["sounds/*.mp3", "offscreen.html", "offscreen.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

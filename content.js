@@ -4,27 +4,79 @@ function play(sound) {
   chrome.runtime.sendMessage({ type: "PLAY_SOUND", sound });
 }
 
-function hookCreatePRButton() {
-  const candidates = Array.from(
+let pendingCreate = false;
+let lastUrl = location.href;
+
+function findFinalCreateButton() {
+  // On the PR creation form, the final submit is usually:
+  // button with text "Create pull request" and type="submit"
+  const buttons = Array.from(
     document.querySelectorAll("button, input[type=submit]")
   );
 
-  const createBtn = candidates.find((el) => {
+  return buttons.find((el) => {
     const text = (el.textContent || el.value || "").trim();
-    return /create pull request/i.test(text);
-  });
+    const isCreateText = /create pull request/i.test(text);
 
-  if (createBtn && !createBtn.__prSfxHooked) {
-    createBtn.__prSfxHooked = true;
-    createBtn.addEventListener("click", () => play(PR_CREATE_SOUND), {
-      once: true,
-    });
+    // Heuristic: final button is submit OR in a form
+    const isSubmit =
+      el.type === "submit" || el.getAttribute("type") === "submit";
+    const inForm = !!el.closest("form");
+
+    return isCreateText && (isSubmit || inForm);
+  });
+}
+
+function hookFinalCreateClick() {
+  const btn = findFinalCreateButton();
+  if (!btn || btn.__prSfxHooked) return;
+
+  btn.__prSfxHooked = true;
+  btn.addEventListener(
+    "click",
+    () => {
+      // User clicked the final submit
+      pendingCreate = true;
+    },
+    { capture: true }
+  );
+}
+
+function isPullRequestPage(url) {
+  // Matches https://github.com/owner/repo/pull/123
+  try {
+    const u = new URL(url);
+    return /\/pull\/\d+($|\/)/.test(u.pathname);
+  } catch {
+    return false;
   }
 }
 
-// GitHub is a SPA, so watch for DOM changes
-const observer = new MutationObserver(hookCreatePRButton);
+function handleNav() {
+  if (location.href === lastUrl) return;
+
+  lastUrl = location.href;
+
+  if (pendingCreate && isPullRequestPage(lastUrl)) {
+    pendingCreate = false;
+    play(PR_CREATE_SOUND);
+  } else {
+    // If they navigated elsewhere, clear the flag
+    if (!/compare|pull\/new/i.test(lastUrl)) {
+      pendingCreate = false;
+    }
+  }
+
+  hookFinalCreateClick();
+}
+
+// GitHub SPA: observe DOM + URL changes
+const observer = new MutationObserver(() => {
+  hookFinalCreateClick();
+  handleNav();
+});
+
 observer.observe(document.body, { childList: true, subtree: true });
 
-// first run
-hookCreatePRButton();
+// initial
+hookFinalCreateClick();

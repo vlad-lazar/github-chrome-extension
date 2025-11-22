@@ -5,45 +5,36 @@ function play(sound) {
 }
 
 let pendingCreate = false;
+let playedForThisCreate = false;
 let lastUrl = location.href;
 
-function findFinalCreateButton() {
-  // On the PR creation form, the final submit is usually:
-  // button with text "Create pull request" and type="submit"
-  const buttons = Array.from(
-    document.querySelectorAll("button, input[type=submit]")
-  );
+function looksLikeFinalPRCreateButton(el) {
+  const btn = el.closest("button, input[type=submit]");
+  if (!btn) return false;
 
-  return buttons.find((el) => {
-    const text = (el.textContent || el.value || "").trim();
-    const isCreateText = /create pull request/i.test(text);
+  const text = (btn.textContent || btn.value || "").trim().toLowerCase();
 
-    // Heuristic: final button is submit OR in a form
-    const isSubmit =
-      el.type === "submit" || el.getAttribute("type") === "submit";
-    const inForm = !!el.closest("form");
+  const isCreate =
+    text.includes("create pull request") ||
+    text.includes("create draft pull request");
 
-    return isCreateText && (isSubmit || inForm);
-  });
-}
+  if (!isCreate) return false;
 
-function hookFinalCreateClick() {
-  const btn = findFinalCreateButton();
-  if (!btn || btn.__prSfxHooked) return;
+  // Heuristic: final create button is on PR creation screen and inside a form
+  const form = btn.closest("form");
+  if (!form) return true; // sometimes GitHub uses JS submit without explicit form
 
-  btn.__prSfxHooked = true;
-  btn.addEventListener(
-    "click",
-    () => {
-      // User clicked the final submit
-      pendingCreate = true;
-    },
-    { capture: true }
-  );
+  const action = (form.getAttribute("action") || "").toLowerCase();
+  // Action often contains /pull/create or similar
+  const looksPRForm =
+    action.includes("/pull/create") ||
+    action.includes("/compare/") ||
+    action.includes("/pull/new");
+
+  return looksPRForm || true; // keep permissive once text matches
 }
 
 function isPullRequestPage(url) {
-  // Matches https://github.com/owner/repo/pull/123
   try {
     const u = new URL(url);
     return /\/pull\/\d+($|\/)/.test(u.pathname);
@@ -52,31 +43,50 @@ function isPullRequestPage(url) {
   }
 }
 
-function handleNav() {
-  if (location.href === lastUrl) return;
+function checkForSuccessToast() {
+  // GitHub shows a flash/notice on success; catch common containers
+  const flashes = Array.from(
+    document.querySelectorAll(".flash, .js-flash-alert, .Toast, [role='alert']")
+  );
 
-  lastUrl = location.href;
+  return flashes.some((el) =>
+    /pull request created|successfully created|created pull request/i.test(
+      el.textContent || ""
+    )
+  );
+}
 
-  if (pendingCreate && isPullRequestPage(lastUrl)) {
-    pendingCreate = false;
-    play(PR_CREATE_SOUND);
-  } else {
-    // If they navigated elsewhere, clear the flag
-    if (!/compare|pull\/new/i.test(lastUrl)) {
+// 1) Capture clicks anywhere (works even if button is re-rendered)
+document.addEventListener(
+  "click",
+  (e) => {
+    if (looksLikeFinalPRCreateButton(e.target)) {
+      pendingCreate = true;
+      playedForThisCreate = false;
+    }
+  },
+  true // capture phase so we catch before GitHub handlers
+);
+
+// 2) Watch SPA navigations + DOM changes
+const observer = new MutationObserver(() => {
+  // URL change detection
+  if (location.href !== lastUrl) {
+    lastUrl = location.href;
+
+    if (pendingCreate && !playedForThisCreate && isPullRequestPage(lastUrl)) {
+      playedForThisCreate = true;
       pendingCreate = false;
+      play(PR_CREATE_SOUND);
     }
   }
 
-  hookFinalCreateClick();
-}
-
-// GitHub SPA: observe DOM + URL changes
-const observer = new MutationObserver(() => {
-  hookFinalCreateClick();
-  handleNav();
+  // Toast-based fallback (in case GitHub doesn't hard-navigate)
+  if (pendingCreate && !playedForThisCreate && checkForSuccessToast()) {
+    playedForThisCreate = true;
+    pendingCreate = false;
+    play(PR_CREATE_SOUND);
+  }
 });
 
 observer.observe(document.body, { childList: true, subtree: true });
-
-// initial
-hookFinalCreateClick();
